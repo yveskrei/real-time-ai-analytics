@@ -8,17 +8,22 @@ The conversion will result with model_**fp16** and model_**fp32** files, which r
 Next, we would be converting the `.onnx` file we have to `.engine`, using NVIDIA's TensorRT tool.<br>
 TensorRT compiles a model for your specific achitecture(one used at time of compilation), therefore making it very efficient when running on your machine.<br>
 
+## Setting up the environment
+```bash
+uv sync
+```
+
 ## Pytorch to Onnx Conversion
 The following command is used for converting a model from Pytorch to Onnx:
 ```bash
 # YOLOV9
-python3.11 export_model.py \
+uv run export_model.py \
   --model_type YOLOV9 \
   --model_path MODEL.pt \
   --model-source-code ./yolov9/
 
 # DINOV3
-python3.11 export_model.py \
+uv run export_model.py \
   --model_type DINOV3 \
   --model_path MODEL.pt \
   --model-source-code ./dinov3/

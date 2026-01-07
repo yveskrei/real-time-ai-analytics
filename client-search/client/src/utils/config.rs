@@ -1,0 +1,167 @@
+//! Responsible for holding all application configuration under one place
+//! for easy access and setting format for same variables
+
+use std::path::{Path};
+use std::collections::HashMap;
+use anyhow::{self, Result, Context};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, fmt};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use serde_yaml;
+use serde::Deserialize;
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ModelConfig {
+    pub name: String,
+    pub precision: InferencePrecision,
+    pub input_name: String,
+    pub input_shape: Vec<i64>,
+    pub output_name: String,
+    pub output_shape: Vec<i64>,
+    pub batch_max_size: u32,
+    pub batch_max_queue_delay: u32,
+    pub batch_preferred_sizes: Vec<u32>
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct TritonConfig {
+    pub url: String
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ElasticConfig {
+    pub url: String,
+    pub index_name: String
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct InferenceConfig {
+    pub models: HashMap<InferenceModelType, ModelConfig>
+}
+
+/// Represents the inference model precision type
+#[derive(PartialEq, Eq, Clone, Copy, Debug, Deserialize)]
+pub enum InferencePrecision {
+    FP32,
+    FP16
+}
+
+impl InferencePrecision {
+    pub fn to_string(&self) -> String {
+        match self {
+            InferencePrecision::FP32 => "FP32",
+            InferencePrecision::FP16 => "FP16",
+        }.to_string()
+    }
+}
+
+/// Represents type of inference model
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Deserialize)]
+#[allow(non_camel_case_types)]
+pub enum InferenceModelType {
+    YOLO,
+    DINO,
+    DINO_BBOXES
+}
+
+impl InferenceModelType {
+    pub fn to_string(&self) -> &'static str {
+        match self {
+            InferenceModelType::YOLO => "YOLO",
+            InferenceModelType::DINO => "DINO",
+            InferenceModelType::DINO_BBOXES => "DINO_BBOXES"
+        }
+    }
+}
+
+/// Represents all the configuation variables used by the application
+#[derive(Debug, Deserialize)]
+pub struct AppConfig {
+    local: bool,
+    port: u16,
+    elastic_config: ElasticConfig,
+    triton_config: TritonConfig,
+    inference_config: InferenceConfig
+}
+
+impl AppConfig {
+    /// Creates a new instance of the configuration object
+    pub fn new() -> Result<Self> {
+        let config: AppConfig = AppConfig::load_config_file()
+            .context("Error loading configuation file")?;
+
+        // Initiate app logging
+        AppConfig::init_logging(config.local);
+
+        Ok(config)
+    }
+
+    /// Loads environment variables from a local .env file
+    fn load_config_file() -> Result<AppConfig> {
+        // Path relative to cwd
+        let config_file = "secrets/config.yaml".to_string();
+        let config_path = Path::new(&config_file);
+        
+        // Load configuration file
+        let contents = std::fs::read_to_string(config_path)
+            .context("Error locating configuration file")?;
+
+        let config_file: AppConfig = serde_yaml::from_str(&contents)
+            .context("Error parsing configuration file")?;
+
+        Ok(config_file)
+    }
+
+    /// Initiates structured logging
+    fn init_logging(local: bool) {
+        let file_appender = RollingFileAppender::new(Rotation::NEVER, "logs", "app.log");
+        let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+        // Append logging to local file
+        let file_layer = if local {
+            Some(
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_timer(fmt::time::UtcTime::rfc_3339())
+                    .with_writer(non_blocking)
+            )
+        } else {
+            None
+        };
+
+        tracing_subscriber::registry()
+            .with(EnvFilter::from_default_env())
+            .with(
+                // Console layer - pretty format
+                tracing_subscriber::fmt::layer()
+                    .json()
+                    .with_timer(fmt::time::UtcTime::rfc_3339())
+                    .with_writer(std::io::stdout)
+            )
+            .with(file_layer)
+            .init();
+
+        std::mem::forget(_guard);
+    }
+}
+
+impl AppConfig {
+    pub fn is_local(&self) -> bool {
+        self.local
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub fn elastic_config(&self) -> &ElasticConfig {
+        &self.elastic_config
+    }
+
+    pub fn triton_config(&self) -> &TritonConfig {
+        &self.triton_config
+    }
+
+    pub fn inference_config(&self) -> &InferenceConfig {
+        &self.inference_config
+    }
+}
