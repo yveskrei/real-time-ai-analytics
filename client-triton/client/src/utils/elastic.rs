@@ -89,7 +89,7 @@ impl Elastic {
     /// Adds embeddings to the queue
     pub async fn populate_embeddings(
         source_id: &str,
-        timestamp: u64,
+        timestamp: i64,
         embeddings: &[ResultEmbedding]
     ) -> Result<()> {
         let elastic = get_elastic()?;
@@ -120,8 +120,6 @@ impl Elastic {
             body.push(doc.into());
         }
 
-        tracing::info!("Sending bulk request to Elastic, Total {}", body.len());
-
         let response = client
             .bulk(BulkParts::None)
             .body(body)
@@ -129,9 +127,13 @@ impl Elastic {
             .await
             .context("Failed to send bulk request to Elastic")?;
 
-        if !response.status_code().is_success() {
-            let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Elastic bulk request failed: {}", error_text);
+        // Validate request response
+        let response_body: Value = response.json().await?;
+        if response_body["errors"].as_bool().unwrap_or(false) {
+            // Log the actual error message from the first failed item
+            tracing::error!("Bulk write contained errors: {:?}", response_body);
+        } else {
+            tracing::info!("Successfully sent bulk request to Elastic, Total {}", body.len());
         }
         
         Ok(())

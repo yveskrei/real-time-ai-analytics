@@ -1,6 +1,6 @@
 services:
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.2.3
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.0-SNAPSHOT
     container_name: elasticsearch
     environment:
       - node.name=elasticsearch
@@ -10,6 +10,7 @@ services:
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
       - xpack.security.enabled=false
       - xpack.security.enrollment.enabled=false
+      - xpack.license.self_generated.type=trial
     ulimits:
       memlock:
         soft: -1
@@ -22,7 +23,7 @@ services:
       - elastic
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.2.3
+    image: docker.elastic.co/kibana/kibana:9.3.0-SNAPSHOT
     container_name: kibana
     ports:
       - "5601:5601"
@@ -36,7 +37,7 @@ services:
 
   # Processing node (Logstash) - often used for processing/transforming data
   logstash:
-    image: docker.elastic.co/logstash/logstash:9.2.3
+    image: docker.elastic.co/logstash/logstash:9.3.0-SNAPSHOT
     container_name: logstash
     environment:
       - "LS_JAVA_OPTS=-Xmx256m -Xms256m" 

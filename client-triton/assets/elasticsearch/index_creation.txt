@@ -20,7 +20,7 @@ PUT _component_template/embedding-live-object-template
         "embedding": {
           "type": "dense_vector",
           "dims": 768,
-          "element_type": "float",
+          "element_type": "bfloat16",
           "index": true,
           "index_options": {
             "type": "bbq_disk"
@@ -53,7 +53,7 @@ PUT _index_template/embedding-live-template
     }
   },
   "index_patterns": [
-    "embedding-live-*"
+    "embeddings-live-*"
   ],
   "composed_of": [
     "embedding-live-object-template"

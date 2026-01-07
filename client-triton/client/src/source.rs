@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use tokio::sync::{OnceCell, RwLock, Semaphore};
+use chrono::Utc;
 
 // Custom modules
 use crate::client_video::ClientVideo;
@@ -396,7 +397,7 @@ impl SourceProcessor {
     ) {
         if let Err(e) = Elastic::populate_embeddings(
             &source_id, 
-            frame.pts, 
+            Utc::now().timestamp_millis(), 
             &embeddings
         ).await {
             tracing::warn!(
