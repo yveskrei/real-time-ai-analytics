@@ -17,6 +17,7 @@ chrono = "0.4.42"
 nvml-wrapper = "0.11.0"
 serde_yaml = "0.9.34"
 futures = "0.3.31"
+elasticsearch = "9.1.0-alpha.1"
 
 # API dependencies
 utoipa = { version = "5.4.0", features = ["axum_extras"] }

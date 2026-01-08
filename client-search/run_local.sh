@@ -17,8 +17,7 @@ done
 
 # Start Triton client application
 export RUST_LOG=INFO
-cd client
-cargo run --release &
+cd client && cargo run --release &
 CARGO_PID=$!
 
 # Define cleanup function
@@ -27,7 +26,6 @@ cleanup() {
     wait $CARGO_PID 2>/dev/null
     
     # Stop Triton Server
-    cd ..
     docker compose -f ../docker-compose-triton.yml down
     exit
 }

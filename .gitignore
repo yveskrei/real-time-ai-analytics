@@ -72,7 +72,6 @@ htmlcov/
 *.gz
 
 # Project-specific
-models/
 sources/
 *Cargo.lock
 *target/

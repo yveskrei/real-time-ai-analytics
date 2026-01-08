@@ -5,8 +5,8 @@ use std::sync::{Arc, OnceLock};
 
 
 // Variables
-pub static PROCESSING_STATS_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(1);
-pub static GPU_STATS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+pub static PROCESSING_STATS_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(1000);
+pub static GPU_STATS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1000);
 
 pub static STATISTICS: OnceLock<Statistics> = OnceLock::new();
 
@@ -132,7 +132,7 @@ pub struct Statistics {
 
 impl Statistics {
     pub fn new() -> Result<Self> {
-        let is_running = Arc::new(AtomicBool::new(false));
+        let is_running = Arc::new(AtomicBool::new(true));
         let processing_stats = Arc::new(ProcessingStats::new());
 
         // Spawn an independent task to print source statistics

@@ -7,7 +7,28 @@ use anyhow::{self, Result, Context};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, fmt};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use serde_yaml;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
+pub enum SearchType {
+    FAST,
+    MEDIUM,
+    DEEP
+}
+
+impl std::str::FromStr for SearchType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "FAST" => Ok(SearchType::FAST),
+            "MEDIUM" => Ok(SearchType::MEDIUM),
+            "DEEP" => Ok(SearchType::DEEP),
+            _ => Err(format!("Invalid search type: {}", s))
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct ModelConfig {
@@ -35,7 +56,16 @@ pub struct ElasticConfig {
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct InferenceConfig {
-    pub models: HashMap<InferenceModelType, ModelConfig>
+    pub models: HashMap<InferenceModelType, ModelConfig>,
+    pub instances: ModelInstancesConfig
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct ModelInstancesConfig {
+    pub default: u32,
+
+    #[serde(default)]
+    pub custom: HashMap<String, HashMap<InferenceModelType, u32>>
 }
 
 /// Represents the inference model precision type
@@ -58,19 +88,23 @@ impl InferencePrecision {
 #[derive(PartialEq, Eq, Hash, Clone, Debug, Deserialize)]
 #[allow(non_camel_case_types)]
 pub enum InferenceModelType {
-    YOLO,
-    DINO,
-    DINO_BBOXES
+    DINO
 }
 
 impl InferenceModelType {
     pub fn to_string(&self) -> &'static str {
         match self {
-            InferenceModelType::YOLO => "YOLO",
-            InferenceModelType::DINO => "DINO",
-            InferenceModelType::DINO_BBOXES => "DINO_BBOXES"
+            InferenceModelType::DINO => "DINO"
         }
     }
+}
+
+#[derive(PartialEq, Clone, Debug, Deserialize)]
+pub struct SearchConfigOption {
+    pub output_vectors: u32,
+    pub num_candidates: u32,
+    pub centriod_visit_percentage: u32,
+    pub vector_oversample_multiplier: f32
 }
 
 /// Represents all the configuation variables used by the application
@@ -80,7 +114,8 @@ pub struct AppConfig {
     port: u16,
     elastic_config: ElasticConfig,
     triton_config: TritonConfig,
-    inference_config: InferenceConfig
+    inference_config: InferenceConfig,
+    search_config: HashMap<SearchType, SearchConfigOption>
 }
 
 impl AppConfig {
@@ -163,5 +198,9 @@ impl AppConfig {
 
     pub fn inference_config(&self) -> &InferenceConfig {
         &self.inference_config
+    }
+
+    pub fn search_config(&self) -> &HashMap<SearchType, SearchConfigOption> {
+        &self.search_config
     }
 }

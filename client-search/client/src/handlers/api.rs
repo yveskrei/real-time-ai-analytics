@@ -56,48 +56,48 @@ impl<T: Serialize> ApiResponse<T> {
     }
 
     // Error responses (4xx)
-    pub fn error(status_code: StatusCode, message: impl Into<String>) -> ApiResponse<()> {
-        ApiResponse {
+    pub fn error(status_code: StatusCode, message: impl Into<String>) -> Self {
+        Self {
             status_code,
             message: message.into(),
             data: None,
         }
     }
 
-    pub fn bad_request(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn bad_request(message: impl Into<String>) -> Self {
         Self::error(StatusCode::BAD_REQUEST, message)
     }
 
-    pub fn unauthorized(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn unauthorized(message: impl Into<String>) -> Self {
         Self::error(StatusCode::UNAUTHORIZED, message)
     }
 
-    pub fn forbidden(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn forbidden(message: impl Into<String>) -> Self {
         Self::error(StatusCode::FORBIDDEN, message)
     }
 
-    pub fn not_found(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn not_found(message: impl Into<String>) -> Self {
         Self::error(StatusCode::NOT_FOUND, message)
     }
 
-    pub fn conflict(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn conflict(message: impl Into<String>) -> Self {
         Self::error(StatusCode::CONFLICT, message)
     }
 
-    pub fn unprocessable_entity(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn unprocessable_entity(message: impl Into<String>) -> Self {
         Self::error(StatusCode::UNPROCESSABLE_ENTITY, message)
     }
 
-    pub fn too_many_requests(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn too_many_requests(message: impl Into<String>) -> Self {
         Self::error(StatusCode::TOO_MANY_REQUESTS, message)
     }
 
     // Server error responses (5xx)
-    pub fn internal_error(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn internal_error(message: impl Into<String>) -> Self {
         Self::error(StatusCode::INTERNAL_SERVER_ERROR, message)
     }
 
-    pub fn service_unavailable(message: impl Into<String>) -> ApiResponse<()> {
+    pub fn service_unavailable(message: impl Into<String>) -> Self {
         Self::error(StatusCode::SERVICE_UNAVAILABLE, message)
     }
 
