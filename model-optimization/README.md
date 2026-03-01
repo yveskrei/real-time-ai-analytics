@@ -75,3 +75,34 @@ To test performance of TRT model, use the following command:
   --loadEngine=CONVERTED.engine \
   --shapes=images:8x3x640x640 \
   --exportTimes=inference_times.json
+
+Dinov3 export:
+```bash
+# For TritonServer from 24.12+
+/usr/src/tensorrt/bin/trtexec \
+    --onnx=/yves/dinov3_vitb16-fp32-512.onnx \
+    --saveEngine=/yves/dinov3_512.engine \
+    --optShapes=images:8x3x512x512 \
+    --minShapes=images:1x3x512x512 \
+    --maxShapes=images:16x3x512x512 \
+    --inputIOFormats=fp16:chw \
+    --outputIOFormats=fp16:chw \
+    --fp16 \
+    --precisionConstraints=obey \
+    --layerPrecisions='.*Softmax.*':fp32,'.*LayerNorm.*':fp32,'.*rope_embed.*':fp32 
+
+# For TritonServer up to 24.12
+/usr/src/tensorrt/bin/trtexec     
+    --onnx=/yves/dinov3_vitb16-fp32-512.onnx     
+    --saveEngine=/yves/dinov3_512_perfect.engine     
+    --optShapes=images:8x3x512x512     
+    --minShapes=images:1x3x512x512     
+    --maxShapes=images:16x3x512x512     
+    --inputIOFormats=fp16:chw     
+    --outputIOFormats=fp16:chw     
+    --fp16     
+    --noTF32     
+    --precisionConstraints=obey     
+    --tacticSources=+cuBLAS,+cuBLAS_LT,+cuDNN     
+    --layerPrecisions='.*Softmax.*':fp32,'.*LayerNorm.*':fp32,'.*rope_embed.*':fp32,'.*attn.*':fp16,'.*mlp.*':fp16,'.*patch_embed.*':fp16,'*':fp32
+```
