@@ -1,33 +1,11 @@
 use anyhow::{Result, Context};
 use nvml_wrapper::Nvml;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
-
+use std::sync::Arc;
 
 // Variables
-pub static PROCESSING_STATS_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(1);
+pub static PROCESSING_STATS_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(1000);
 pub static GPU_STATS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1000);
-
-pub static STATISTICS: OnceLock<Arc<Statistics>> = OnceLock::new();
-
-pub fn init_statistics() -> Result<()> {
-    if let Some(_) = STATISTICS.get() {
-        anyhow::bail!("Statistics already initiated!")
-    }
-
-    let statistics = Statistics::new()
-        .context("Error creating statistics object")?;
-
-    STATISTICS.set(Arc::new(statistics))
-        .map_err(|_| anyhow::anyhow!("Error setting statistics object"))?;
-    
-    Ok(())
-}
-
-pub fn get_statistics() -> Result<Arc<Statistics>> {
-    STATISTICS.get().cloned()
-        .context("Statistics not initialized!")
-}
 
 /// Represents GPU statistics that are reported by the application
 pub struct GPUStats {

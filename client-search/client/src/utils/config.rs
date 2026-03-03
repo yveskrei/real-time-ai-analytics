@@ -10,6 +10,7 @@ use serde_yaml;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use std::str::FromStr;
+use bincode::{Decode, Encode};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Deserialize, Serialize, ToSchema)]
 pub enum SearchType {
@@ -19,14 +20,14 @@ pub enum SearchType {
 }
 
 impl FromStr for SearchType {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "LIGHT" => Ok(SearchType::LIGHT),
             "MEDIUM" => Ok(SearchType::MEDIUM),
             "HEAVY" => Ok(SearchType::HEAVY),
-            _ => Err(format!("Invalid search type: {}", s))
+            _ => Err(anyhow::anyhow!("Invalid search type: {}", s))
         }
     }
 }
@@ -86,7 +87,7 @@ impl InferencePrecision {
 }
 
 /// Represents type of inference model
-#[derive(PartialEq, Eq, Hash, Clone, Debug, Deserialize, ToSchema)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug, Serialize, Deserialize, ToSchema, Encode, Decode)]
 #[allow(non_camel_case_types)]
 pub enum InferenceModelType {
     SCENE,
@@ -103,13 +104,13 @@ impl InferenceModelType {
 }
 
 impl FromStr for InferenceModelType {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "SCENE" => Ok(InferenceModelType::SCENE),
             "OBJECTS" => Ok(InferenceModelType::OBJECTS),
-            _ => Err(format!("Invalid inference model type: {}", s))
+            _ => Err(anyhow::anyhow!("Invalid inference model type: {}", s))
         }
     }
 }
@@ -122,6 +123,13 @@ pub struct SearchConfigOption {
     pub vector_oversample_multiplier: f32
 }
 
+#[derive(PartialEq, Clone, Debug, Deserialize)]
+pub struct RedisConfig {
+    pub url: String,
+    pub username: String,
+    pub password: String
+}
+
 /// Represents all the configuation variables used by the application
 #[derive(Debug, Deserialize)]
 pub struct AppConfig {
@@ -129,6 +137,7 @@ pub struct AppConfig {
     port: u16,
     elastic_config: ElasticConfig,
     triton_config: TritonConfig,
+    redis_config: RedisConfig,
     inference_config: InferenceConfig,
     search_config: HashMap<SearchType, SearchConfigOption>
 }
@@ -209,6 +218,10 @@ impl AppConfig {
 
     pub fn triton_config(&self) -> &TritonConfig {
         &self.triton_config
+    }
+
+    pub fn redis_config(&self) -> &RedisConfig {
+        &self.redis_config
     }
 
     pub fn inference_config(&self) -> &InferenceConfig {

@@ -2,9 +2,8 @@
 //! Performs operations on raw frames/inference results with SIMD optimizations
 
 use anyhow::Result;
+use bincode::{Decode, Encode};
 use std::sync::OnceLock;
-use tokio::time::Instant;
-use serde::Serialize;
 
 // Custom modules
 pub mod dino;
@@ -21,12 +20,11 @@ const PAD_GRAY_COLOR: usize = 114;
 pub struct RawFrame {
     pub data: Vec<u8>,
     pub height: u32,
-    pub width: u32,
-    pub added: Instant
+    pub width: u32
 }
 
 /// Represents embedding output from the model inference results
-#[derive(Clone, Serialize)]
+#[derive(Clone, Encode, Decode)]
 pub struct ResultEmbedding {
     pub data: Vec<f32>
 }

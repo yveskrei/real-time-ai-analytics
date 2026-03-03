@@ -20,7 +20,11 @@ elasticsearch = "9.1.0-alpha.1"
 zune-jpeg = "0.4"
 zune-png = "0.4"
 zune-core = "0.4"
-image = "0.25"  # keep for fallback
+image = "0.25"
+redis = { version = "1.0.4", features = ["tokio-comp", "connection-manager"] }
+redis-rate = "0.1.1"
+uuid = { version = "1.21.0", features = ["v4"] }
+bincode = "2.0.1"
 
 # API dependencies
 utoipa = { version = "5.4.0", features = ["axum_extras"] }

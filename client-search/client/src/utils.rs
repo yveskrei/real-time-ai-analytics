@@ -5,6 +5,7 @@ use nvml_wrapper::Nvml;
 // Custom modules
 pub mod config;
 pub mod elastic;
+pub mod redis;
 
 /// Parses image bytes to extract an image
 pub fn parse_image(data: &[u8]) -> Result<(Vec<u8>, u32, u32)> {

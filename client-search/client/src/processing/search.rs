@@ -1,53 +1,94 @@
-use anyhow::Result;
-
-// Custom modules
-use crate::utils::config::{SearchType, InferenceModelType};
-use crate::utils::elastic::SearchMetadata;
-use crate::processing::RawFrame;
+use anyhow::{Result, Context};
+use uuid::Uuid;
+use bincode::{config, Decode, Encode};
+use redis::AsyncCommands;
 use std::sync::Arc;
 
 // Custom modules
-use crate::inference;
+use crate::utils::config::{InferenceModelType, SearchType};
+use crate::processing::{RawFrame, ResultEmbedding};
+use crate::utils::elastic::SearchMetadata;
+// Custom modules
 use crate::processing;
-use crate::utils::elastic::Elastic;
-use crate::statistics;
+use crate::services;
 
-pub async fn search_image(
-    raw_frame: RawFrame, 
-    search_type: SearchType, 
-    model_type: InferenceModelType,
-    metadata: SearchMetadata
-) -> Result<Vec<serde_json::Value>> {
-    let frame_queue_time = raw_frame.added.elapsed();
-    let raw_frame = Arc::new(raw_frame);
+#[derive(Encode, Decode)]
+pub struct ImageMetadata {
+    pub embedding: ResultEmbedding,
+    pub model_type: InferenceModelType
+}
 
-    // Perform inference on the frame
-    let inference_model = inference::get_inference_model(model_type)?;
-    let frame = Arc::clone(&raw_frame);
-    let (mut inference_stats, embedding) = processing::dino::process_frame(
+pub async fn upload_image(
+    image: RawFrame,
+    model_type: InferenceModelType
+) -> Result<String> {
+    let services = services::get_services()?;
+
+    // Get image embedding
+    let inference_model = services.inference_models()
+        .model(model_type.clone())?;
+    let (inference_stats, embedding) = processing::dino::process_frame(
         &inference_model, 
-        frame
+        Arc::new(image)
     ).await?;
 
-    // Search for similar images
-    let measure_start = tokio::time::Instant::now();
-    let search_results = Elastic::search_disk_bbq(
+    // Assign new image
+    let image_id = Uuid::new_v4();
+    let image_metadata = ImageMetadata {
         embedding,
-        search_type, 
-        metadata
-    ).await?;
+        model_type
+    };
 
-    let search_time = measure_start.elapsed();
-    inference_stats.search += search_time.as_micros() as u64;
+    // Upload image to redis
+    let metadata_bytes: Vec<u8> = bincode::encode_to_vec(&image_metadata, config::standard())
+        .context("Error converting image metadata to bytes")?;
+    
+    services.redis().connection().set_ex::<_, _, ()>(
+        format!("retrieval_{}", image_id.to_string()),
+        metadata_bytes,
+        120  // seconds
+    ).await
+        .context("Error uploading image to redis")?;
 
-    // Add final statistics
-    inference_stats.queue = frame_queue_time.as_micros() as u64;
-    inference_stats.processing += frame_queue_time.as_micros() as u64;
-
-    // Add statistics to global counters
-    statistics::get_statistics()?
+    // Add to global statistics
+    services.statistics()
         .processing_stats()
         .accumulate(&inference_stats);
+
+    Ok(image_id.to_string())
+}
+
+pub async fn search_image(
+    image_id: String,
+    search_type: SearchType,
+    search_metadata: SearchMetadata
+) -> Result<Vec<serde_json::Value>> {
+    let services = services::get_services()?;
+
+    // Get image data from redis
+    let metadata_bytes: Option<Vec<u8>> = services.redis().connection().get(
+        format!("retrieval_{}", &image_id)
+    ).await
+        .context("Error retrieving image!")?;
+    let metadata_bytes = metadata_bytes
+        .context("Image is not found!")?;
+    
+    if metadata_bytes.is_empty() {
+        anyhow::bail!("Error reading image metadata, empty!")
+    }
+
+    let (image_metadata, _): (ImageMetadata, usize) = bincode::decode_from_slice(
+        &metadata_bytes, 
+        config::standard()
+    )
+        .context("Error reading image metadata bytes")?;
+
+    // Search for similar images
+    let search_results = services.elastic().search_disk_bbq(
+        image_metadata.embedding,
+        search_type, 
+        search_metadata
+    ).await?;
     
     Ok(search_results)
 }
