@@ -42,9 +42,23 @@ We would be doing the TensorRT conversion from within the docker image of Triton
     --minShapes=images:1x3x640x640 \
     --maxShapes=images:16x3x640x640 \
     --shapes=images:1x3x640x640 \
-    --fp16  # omit this flag for FP32
+    --fp16 \
+    --inputIOFormats=fp16:chw \
+    --outputIOFormats=fp16:chw
 
-# DinoV3
+# DinoV3 - 512
+/usr/src/tensorrt/bin/trtexec \
+    --onnx=MODEL.onnx \
+    --saveEngine=CONVERTED.engine \
+    --optShapes=images:8x3x512x512 \
+    --minShapes=images:1x3x512x512 \
+    --maxShapes=images:16x3x512x512 \
+    --shapes=images:1x3x512x512 \
+    --fp16 \
+    --inputIOFormats=fp16:chw \
+    --outputIOFormats=fp16:chw
+
+# DinoV3 - 224
 /usr/src/tensorrt/bin/trtexec \
     --onnx=MODEL.onnx \
     --saveEngine=CONVERTED.engine \
@@ -52,7 +66,9 @@ We would be doing the TensorRT conversion from within the docker image of Triton
     --minShapes=images:1x3x224x224 \
     --maxShapes=images:16x3x224x224 \
     --shapes=images:1x3x224x224 \
-    --fp16  # omit this flag for FP32
+    --fp16 \
+    --inputIOFormats=fp16:chw \
+    --outputIOFormats=fp16:chw
 ```
 
 ## Extras - Get model best latency/throughput

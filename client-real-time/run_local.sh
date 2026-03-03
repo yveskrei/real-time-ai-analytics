@@ -1,7 +1,8 @@
 #!/bin/bash
+set -e
 
 # Run triton server
-docker compose -f ../docker-compose-triton.yml up -d
+docker compose -f ../docker-compose.yml up -d
 
 # Wait for triton server to be ready
 while true; do
@@ -27,7 +28,7 @@ cleanup() {
     wait $CARGO_PID 2>/dev/null
 
     # Stop Triton Server
-    docker compose -f ../docker-compose-triton.yml down
+    docker compose -f ../docker-compose.yml down
     exit
 }
 

@@ -14,5 +14,5 @@ To get started with running the application, you must have the following prerequ
 
 Run the following command to start the application locally:
 ```bash
-./client/run_local.sh
+./client-real-time/run_local.sh
 ```

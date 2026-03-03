@@ -6,25 +6,30 @@ use utoipa_swagger_ui::SwaggerUi;
 
 // Custom modules
 pub mod api;
-pub mod models;
+pub mod retrieval;
 use crate::handlers::api::ApiResponse;
-use crate::handlers::models::post::ImageSearchRequest;
+use crate::handlers::retrieval::{
+    post::ImageUploadRequest,
+    get::ImageSearchRequest
+};
 
 // Variables
 pub const TAG_GENERAL: &str = "General";
-pub const TAG_MODELS: &str = "Models";
+pub const TAG_RETRIEVAL: &str = "Retrieval";
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
         health,
-        models::post::search_image
+        retrieval::post::upload_image,
+        retrieval::get::search_image
     ),
     components(schemas(
+        ImageUploadRequest,
         ImageSearchRequest
     )),
     tags(
-        (name = TAG_MODELS, description = "Model Endpoints"),
+        (name = TAG_RETRIEVAL, description = "Retrieval Endpoints"),
         (name = TAG_GENERAL, description = "General Endpoints"),
     ),
     info(
@@ -44,7 +49,7 @@ pub fn routes() -> Router {
                 .url("/openapi.json", openapi)
         )
 
-        .merge(models::routes())
+        .merge(retrieval::routes())
         .route("/health", routing::get(health))
         .fallback(default)
 }
@@ -56,7 +61,7 @@ pub fn routes() -> Router {
     tag = TAG_GENERAL,
     operation_id="general_health",
     responses(
-        (status = 200, description = "API is healthy")
+        (status = 200, description = "OK")
     ),
 )]
 pub async fn health() -> ApiResponse<serde_json::Value> {

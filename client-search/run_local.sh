@@ -1,7 +1,8 @@
 #!/bin/bash
+set -e
 
 # Run triton server
-docker compose -f ../docker-compose-triton.yml up -d
+docker compose -f ../docker-compose.yml --profile client-search up -d
 
 # Wait for triton server to be ready
 while true; do
@@ -15,23 +16,32 @@ while true; do
     fi
 done
 
-# Start Triton client application
-export RUST_LOG=INFO
-cd client && cargo run --release &
-CARGO_PID=$!
-
 # Define cleanup function
 cleanup() {
-    kill $CARGO_PID 2>/dev/null
-    wait $CARGO_PID 2>/dev/null
+    echo "Cleaning up..."
+    if [ -n "$CARGO_PID" ] && kill -0 $CARGO_PID 2>/dev/null; then
+        kill $CARGO_PID 2>/dev/null || true
+        wait $CARGO_PID 2>/dev/null || true
+    fi
     
     # Stop Triton Server
-    docker compose -f ../docker-compose-triton.yml down
-    exit
+    docker compose -f ../docker-compose.yml --profile client-search down
 }
 
 # Trap SIGINT and SIGTERM
 trap cleanup SIGINT SIGTERM EXIT
 
-# Wait for cargo process to finish
+# Start Triton client application
+export RUST_LOG=INFO
+cd client && cargo run --release &
+CARGO_PID=$!
+
+# Wait for cargo process to finish and capture exit code
 wait $CARGO_PID
+CARGO_EXIT_CODE=$?
+
+# If cargo crashed (non-zero exit), report it
+if [ $CARGO_EXIT_CODE -ne 0 ]; then
+    echo "Cargo process exited with code $CARGO_EXIT_CODE"
+    exit $CARGO_EXIT_CODE
+fi

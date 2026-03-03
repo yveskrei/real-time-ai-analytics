@@ -5,33 +5,17 @@ use anyhow::{Result, Context};
 
 // Custom modules
 use client::utils::config::AppConfig;
-use client::statistics;
 use client::handlers;
-use client::inference;
-use client::utils::elastic;
+use client::services;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     // Iniaitlize config
     let app_config = AppConfig::new()
         .context("Error loading config")?;
-
-    elastic::init_elastic(&app_config)
-        .await
-        .context("Error initiating elastic")?;
-
-    // Initiate inference client
-    inference::init_inference_models(&app_config)
-        .await
-        .context("Error initiating inference model")?;
-
-    inference::start_models_instances(&app_config)
-        .await
-        .context("Error initiating inference model instances")?;
-
-    // Initiate statistics
-    statistics::init_statistics()
-        .context("Error initiating statistics")?;
+    
+    services::init_services(&app_config).await
+        .context("Error initiating services")?;
 
     // Build API application
     let app = Router::new()
