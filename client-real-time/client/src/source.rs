@@ -5,64 +5,57 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use tokio::sync::{OnceCell, RwLock, Semaphore};
+use tokio::sync::Semaphore;
 use chrono::Utc;
 
 // Custom modules
 use crate::client_video::ClientVideo;
-use crate::inference;
+use crate::services;
 use crate::processing::{self, RawFrame, ResultBBOX, ResultEmbedding};
 use crate::statistics::{FrameProcessStats, SourceStats};
 use crate::utils::config::{AppConfig, InferenceModelType, InferenceTask, SourceConfig};
 use crate::utils::queue::FixedSizeQueue;
-use crate::utils::elastic::Elastic;
 
 // Variables
-pub static PROCESSORS: OnceCell<Arc<RwLock<HashMap<String, Arc<SourceProcessor>>>>> = OnceCell::const_new();
+pub type SourceProcessorsT = HashMap<String, Arc<SourceProcessor>>;
 pub static MAX_QUEUE_FRAMES: usize = 15;
 
-pub fn get_source_processors() -> Result<Arc<RwLock<HashMap<String, Arc<SourceProcessor>>>>> {
-    PROCESSORS
-        .get()
-        .cloned()
-        .context("Source processors not initiated")
+pub struct SourceProcessors {
+    processors: SourceProcessorsT,
 }
 
-/// Returns a source processor instance by given stream ID
-pub async fn get_source_processor(stream_id: &str) -> Result<Arc<SourceProcessor>> {
-    PROCESSORS
-        .get()
-        .context("Source processors not initiated")?
-        .read()
-        .await
-        .get(stream_id)
-        .cloned()
-        .context("Error getting stream source processor")
-}
+impl SourceProcessors {
+    pub fn new(app_config: &AppConfig) -> Result<Self> {
+        let mut processors = SourceProcessorsT::new();
 
-/// Initiates source processors for given list of sources
-pub async fn init_source_processors(app_config: &AppConfig) -> Result<()> {
-    let processors = PROCESSORS
-        .get_or_init(|| async { Arc::new(RwLock::new(HashMap::new())) })
-        .await;
-    let mut processors = processors.write().await;
+        for (source_id, source_config) in app_config.sources_config().sources.iter() {
+            // Start processor
+            let processor = Arc::new(SourceProcessor::new(
+                source_id.to_string(),
+                source_config.clone(),
+                app_config.inference_config().task,
+            ));
 
-    // Clean processors
-    processors.clear();
+            processors.insert(source_id.to_string(), processor);
+        }
 
-    // Insert new processors
-    for (source_id, source_config) in app_config.sources_config().sources.iter() {
-        // Start processor
-        let processor = Arc::new(SourceProcessor::new(
-            source_id.to_string(),
-            source_config.clone(),
-            app_config.inference_config().task,
-        ));
-
-        processors.insert(source_id.to_string(), processor);
+        Ok(
+            Self {
+                processors,
+            }
+        )
     }
 
-    Ok(())
+    pub fn processor(&self, stream_id: &str) -> Result<Arc<SourceProcessor>> {
+        self.processors
+            .get(stream_id)
+            .cloned()
+            .context("Error getting stream source processor")
+    }
+
+    pub fn processors(&self) -> &SourceProcessorsT {
+        &self.processors
+    }
 }
 
 /// Responsible for managing inference/processing for each source
@@ -256,12 +249,13 @@ impl SourceProcessor {
         inference_task: InferenceTask,
     ) -> Result<FrameProcessStats> {
         let frame_queue_time = frame.added.elapsed();
-
+        let services = services::get_services()?;
+        
         // Perform inference on raw frame and populate results
         let mut stats = match inference_task {
             InferenceTask::ObjectDetection => {
                 // Get BBOXes for frame
-                let yolo_model = inference::get_inference_model(InferenceModelType::YOLO)?;
+                let yolo_model = services.inference_models().model(InferenceModelType::YOLO)?;
                 let yolo_frame = Arc::clone(&frame);
                 let (mut yolo_stats, bboxes) =
                     processing::yolo::process_frame(&yolo_model, &source_config, yolo_frame)
@@ -289,8 +283,8 @@ impl SourceProcessor {
                 let mut final_stats = FrameProcessStats::default();
 
                 // Prepare models
-                let yolo_model = inference::get_inference_model(InferenceModelType::YOLO)?;
-                let dino_model = inference::get_inference_model(InferenceModelType::DINO)?;
+                let yolo_model = services.inference_models().model(InferenceModelType::YOLO)?;
+                let dino_model = services.inference_models().model(InferenceModelType::DINO)?;
                 
                 // Prepare inputs for parallel execution
                 let yolo_frame = Arc::clone(&frame);
@@ -301,8 +295,8 @@ impl SourceProcessor {
                     (yolo_stats, bboxes),
                     (dino_frame_stats, dino_frame_embedding)
                 ) = tokio::try_join!(
-                    processing::yolo::process_frame(yolo_model, &source_config, yolo_frame),
-                    processing::dino::process_frame(dino_model, dino_frame)
+                    processing::yolo::process_frame(&yolo_model, &source_config, yolo_frame),
+                    processing::dino::process_frame(&dino_model, dino_frame)
                 )?;
 
                 // Accumulate statistics
@@ -316,12 +310,12 @@ impl SourceProcessor {
                 if bboxes.len() > 0 {
                     let bboxes = Arc::new(bboxes);
 
-                    let dino_bbox_model = inference::get_inference_model(InferenceModelType::DINO_OBJECTS)?;
+                    let dino_bbox_model = services.inference_models().model(InferenceModelType::DINO_OBJECTS)?;
                     let dino_bbox_frame = Arc::clone(&frame);
                     let dino_bbox_bboxes = Arc::clone(&bboxes);
                 
                     let (dino_bbox_stats, mut dino_bbox_embeddings) = processing::dino::process_bboxes(
-                        dino_bbox_model,
+                        &dino_bbox_model,
                         dino_bbox_frame,
                         dino_bbox_bboxes
                     ).await?;
@@ -344,7 +338,7 @@ impl SourceProcessor {
                         results_frame,
                         results_embeddings,
                     )
-                    .await;
+                    .await?;
 
                     // Update results time
                     let results_time = measure_start.elapsed();
@@ -394,8 +388,10 @@ impl SourceProcessor {
         source_id: Arc<String>,
         frame: Arc<RawFrame>,
         embeddings: Arc<Vec<ResultEmbedding>>,
-    ) {
-        if let Err(e) = Elastic::populate_embeddings(
+    ) -> Result<()> {
+        let services = services::get_services()?;
+
+        if let Err(e) = services.elastic().populate_embeddings(
             &source_id, 
             Utc::now().timestamp_millis(), 
             &embeddings
@@ -406,6 +402,8 @@ impl SourceProcessor {
                 "Failed to populate embeddings to elastic"
             );
         }
+
+        Ok(())
     }
 }
 

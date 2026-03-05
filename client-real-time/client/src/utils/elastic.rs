@@ -1,48 +1,16 @@
 use std::sync::Arc;
-use tokio::sync::OnceCell;
 use anyhow::{Context, Result};
 use elasticsearch::{Elasticsearch, http::transport::Transport, BulkParts, http::request::JsonBody};
 use serde_json::{json, Value};
 
 // Custom modules
-use crate::utils::config::{ElasticConfig, AppConfig};
+use crate::utils::config::ElasticConfig;
 use crate::utils::queue::FixedSizeQueue;
 use crate::processing::ResultEmbedding;
 
 // Constants
 const MAX_QUEUE_SIZE: usize = 1000;
 const FLUSH_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(2);
-
-// Variables
-pub static ELASTIC_CLIENT: OnceCell<Arc<Elastic>> = OnceCell::const_new();
-
-/// Returns the elastic instance, if initiated
-pub fn get_elastic() -> Result<&'static Arc<Elastic>> {
-    Ok(
-        ELASTIC_CLIENT
-            .get()
-            .context("Elastic client is not initiated!")?
-    )
-}
-
-/// Initiates a single instance of elastic client
-pub async fn init_elastic(app_config: &AppConfig) -> Result<()> {
-    if let Some(_) = ELASTIC_CLIENT.get() {
-        anyhow::bail!("Elastic client already initiated!")
-    }
-
-    // Create new instance
-    let elastic_instance = Elastic::new(
-        app_config.elastic_config().clone()
-    )
-        .context("Error creating new Elastic client")?;
-
-    // Set global variable
-    ELASTIC_CLIENT.set(Arc::new(elastic_instance))
-        .map_err(|_| anyhow::anyhow!("Error setting Elastic client"))?;
-
-    Ok(())
-}
 
 pub struct Elastic {
     queue: Arc<FixedSizeQueue<Value>>
@@ -88,12 +56,11 @@ impl Elastic {
 
     /// Adds embeddings to the queue
     pub async fn populate_embeddings(
+        &self,
         source_id: &str,
         timestamp: i64,
         embeddings: &[ResultEmbedding]
     ) -> Result<()> {
-        let elastic = get_elastic()?;
-        
         for embedding in embeddings {
             // Prepare document
             let doc = json!({
@@ -103,7 +70,7 @@ impl Elastic {
             });
             
             // Send to queue
-            elastic.queue.sender.send_async(doc).await;
+            self.queue.sender.send_async(doc).await;
         }
 
         Ok(())

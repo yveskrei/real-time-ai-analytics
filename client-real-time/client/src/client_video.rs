@@ -5,32 +5,11 @@ use std::slice;
 use std::sync::Arc;
 use serde_json::json;
 use std::ffi::CString;
-use std::sync::OnceLock;
 
 // Custom modules
-use crate::source;
+use crate::services;
 use crate::utils::config::AppConfig;
 use crate::processing::{RawFrame, ResultBBOX};
-
-/// Client as static global variable
-pub static CLIENT_VIDEO: OnceLock<Arc<ClientVideo>> = OnceLock::new();
-
-pub fn get_client_video() -> Result<Arc<ClientVideo>> {
-    let client_video = CLIENT_VIDEO.get()
-        .context("Error creating client video")?;
-
-    Ok(Arc::clone(client_video))
-}
-
-pub fn init_client_video() -> Result<()> {
-    let client_video = ClientVideo::new()
-        .context("Error creating client video")?;
-
-    CLIENT_VIDEO.set(Arc::new(client_video))
-        .map_err(|_| anyhow::anyhow!("Error setting up client video"))?;
-
-    Ok(())
-}
 
 // C Types
 pub type SourceFramesCb = extern "C" fn(source_id: c_int, frame: *const u8, width: c_int, height: c_int, pts: c_ulonglong);
@@ -82,7 +61,7 @@ impl ClientVideo {
         )
     }
 
-    pub async fn init_sources(app_config: &AppConfig) -> Result<()> {
+    pub async fn init_sources(&self, app_config: &AppConfig) -> Result<()> {
         // Set callbacks
         ClientVideo::set_callbacks().await
             .context("Error setting Client Video callbacks")?;
@@ -100,11 +79,11 @@ impl ClientVideo {
 
     // Library function
     async fn set_callbacks() -> Result<()> {
-        let client_video = get_client_video()?;
-
         tokio::task::spawn_blocking(move || -> Result<()> {
+            let services = services::get_services()?;
+
             unsafe {
-                let lib_set_callbacks: Symbol<SetCallbacksFn> = client_video.library()
+                let lib_set_callbacks: Symbol<SetCallbacksFn> = services.client_video().library()
                     .get(b"SetCallbacks")
                     .context("Cannot get 'SetCallbacks' function")?;
 
@@ -126,13 +105,14 @@ impl ClientVideo {
     }
 
     async fn start_sources(source_ids: Vec<c_int>) -> Result<()> {
-        let client_video = get_client_video()?;
-
         if source_ids.len() == 0 {
             anyhow::bail!("No valid sources are avaliable");
         }
 
         tokio::task::spawn_blocking(move || -> Result<()> {
+            let services = services::get_services()?;
+            let client_video = services.client_video();
+
             unsafe {
                 let lib_init_multiple_sources: Symbol<InitMultipleSourcesFn> = client_video.library()
                     .get(b"InitMultipleSources")
@@ -179,15 +159,16 @@ impl ClientVideo {
 
 
         // Send back to client
-        let client_video = get_client_video()?;
         let results_bboxes = CString::new(bboxes_result_json)
             .context("Error converting bboxes to C string")?;
         let results_source_id = source_id.parse::<c_int>()
             .expect("Failed to convert source id to integer");
 
         tokio::task::spawn_blocking(move || -> Result<()> {
+            let services = services::get_services()?;
+
             unsafe {
-                let lib_post_results: Symbol<PostResultsFn> = client_video.library()
+                let lib_post_results: Symbol<PostResultsFn> = services.client_video().library()
                     .get(b"PostResults")
                     .context("Cannot get 'PostResults' function")?;
 
@@ -227,9 +208,12 @@ impl ClientVideo {
         // We spawn a task in our threadpool to not block the C callback
         
         if let Ok(rgb_frame) = ClientVideo::get_c_array(frame, frame_size) {
-            if let Ok(runtime) = crate::get_tokio_runtime() {
-                runtime.spawn(async move {
-                    match source::get_source_processor(&source_id).await {
+            if let Ok(services_object) = services::get_services() {
+                let services_task = Arc::clone(&services_object);
+
+                // Spawn task on our runtime to prevent blocking the C callback
+                services_object.runtime().spawn(async move {
+                    match services_task.source_processors().read().await.processor(&source_id) {
                         Err(e) => {
                             tracing::error!(
                                 error=e.to_string(),
@@ -295,10 +279,10 @@ impl ClientVideo {
 
     // Helper functions
     fn free_c_ptr<T>(ptr: *const T) -> Result<()> {
-        let client_video = get_client_video()?;
+        let services = services::get_services()?;
 
         unsafe {
-            let lib_free_c_ptr: Symbol<FreeCPtrFn> = client_video.library()
+            let lib_free_c_ptr: Symbol<FreeCPtrFn> = services.client_video().library()
                 .get(b"FreeCPtr")
                 .context("Cannot get 'FreeCPtr' function")?;
 

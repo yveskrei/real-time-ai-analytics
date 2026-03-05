@@ -1,31 +1,15 @@
 use anyhow::{Result, Context};
 use nvml_wrapper::Nvml;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 
 // Custom modules
-use crate::source;
+use crate::services;
 
 // Variables
 pub static SOURCE_STATS_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_secs(1);
 pub static GPU_STATS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
-
-pub static STATISTICS: OnceLock<Statistics> = OnceLock::new();
-
-pub fn init_statistics() -> Result<()> {
-    if let Some(_) = STATISTICS.get() {
-        anyhow::bail!("Statistics already initiated!")
-    }
-
-    let statistics = Statistics::new()
-        .context("Error creating statistics object")?;
-
-    STATISTICS.set(statistics)
-        .map_err(|_| anyhow::anyhow!("Error setting statistics object"))?;
-    
-    Ok(())
-}
 
 /// Represents GPU statistics that are reported by the application
 pub struct GPUStats {
@@ -134,29 +118,31 @@ pub struct Statistics {
 
 impl Statistics {
     pub fn new() -> Result<Self> {
-        let is_running = Arc::new(AtomicBool::new(false));
+        let is_running = Arc::new(AtomicBool::new(true));
 
         // Spawn an independent task to print source statistics
         let source_stats_is_running = Arc::clone(&is_running);
         let source_stats_interval = SOURCE_STATS_INTERVAL.clone();
-        let source_stats_processors = source::get_source_processors()?;
         let source_stats_handle = tokio::task::spawn(async move {
             let mut interval = tokio::time::interval(source_stats_interval);
+            if let Ok(services) = services::get_services() {
+                while source_stats_is_running.load(Ordering::Relaxed) {
+                    interval.tick().await;
 
-            while source_stats_is_running.load(Ordering::Relaxed) {
-                interval.tick().await;
+                    // Iterate over each source
+                    let processors = services.source_processors().read().await;
+                    for (source_id, source_processor) in processors.processors().iter() {
+                        let stats = source_processor.source_stats();
+                        Self::print_source_stats(
+                            source_id,
+                            stats
+                        );
 
-                // Iterate over each source
-                let processors = source_stats_processors.read().await;
-                for (source_id, source_processor) in processors.iter() {
-                    let stats = source_processor.source_stats();
-                    Self::print_source_stats(
-                        source_id,
-                        stats
-                    );
-
-                    stats.reset();
+                        stats.reset();
+                    }
                 }
+            } else {
+                tracing::warn!("Could not read source processors");
             }
         });
 

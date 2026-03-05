@@ -11,81 +11,79 @@ use triton_client::inference::model_repository_parameter::{ParameterChoice};
 use std::collections::HashMap;
 use serde_json::json;
 use std::sync::Arc;
-use tokio::sync::OnceCell;
 use anyhow::{self, Result, Context};
 
 // Custom modules
 use crate::utils::config::{AppConfig, ModelConfig, TritonConfig, InferenceModelType, InferencePrecision};
 
 // Variables
-pub static INFERENCE_MODELS: OnceCell<HashMap<InferenceModelType, Arc<InferenceModel>>> = OnceCell::const_new();
+pub type InferenceModelsT = HashMap<InferenceModelType, Arc<InferenceModel>>;
 
-/// Returns the inference model instance, if initiated
-pub fn get_inference_model(model_type: InferenceModelType) -> Result<&'static Arc<InferenceModel>> {
-    Ok(
-        INFERENCE_MODELS
-            .get()
-            .context("Infernece models are not initiated!")?
-            .get(&model_type)
-            .context("Infernece model is not initiated!")?
-    )
+pub struct InferenceModels {
+    models: InferenceModelsT
 }
 
-/// Initiates a single instance of a model for inference
-pub async fn init_inference_models(app_config: &AppConfig) -> Result<()> {
-    if let Some(_) = INFERENCE_MODELS.get() {
-        anyhow::bail!("Models are already initiated!")
-    }
+impl InferenceModels {
+    pub async fn new(app_config: &AppConfig) -> Result<Self> {
+        let mut models: HashMap<InferenceModelType, Arc<InferenceModel>> = HashMap::new();
+        
+        for (model_type, model_config) in app_config.inference_config().models.iter() {
+            // Create single instance
+            let client_instance = InferenceModel::new(
+                app_config.triton_config().clone(),
+                model_config.clone(),
+            )
+                .await
+                .context("Error creating model client")?;
 
-    // Create model instances
-    let mut models: HashMap<InferenceModelType, Arc<InferenceModel>> = HashMap::new();
-    for (model_type, model_config) in app_config.inference_config().models.iter() {
-        // Create single instance
-        let client_instance = InferenceModel::new(
-            app_config.triton_config().clone(),
-            model_config.clone(),
-        )
-            .await
-            .context("Error creating model client")?;
-
-        models.insert(
-            model_type.clone(),
-            Arc::new(client_instance)
-        );
-    }
-
-    // Set global variable
-    INFERENCE_MODELS.set(models)
-        .map_err(|_| anyhow::anyhow!("Error setting model instances"))?;
-
-    Ok(())
-}
-
-pub async fn start_models_instances(app_config: &AppConfig) -> Result<()> {
-    // Calculate total "load units" - how much processing capacity we need
-    // Each source contributes fractional load based on its frame rate
-    let instances: u32 = app_config
-        .sources_config()
-        .sources
-        .len() as u32;
-
-    // Load same amount of instances for each model type
-    for model_type in app_config.inference_config().models.keys() {
-        let client_instance = get_inference_model(model_type.clone())?;
-
-        // Clear previous model instances
-        if let Ok(_) = client_instance.unload_model().await {
-            tracing::warn!("Unloaded previous model instances for type {}", model_type.to_string());
+            models.insert(
+                model_type.clone(),
+                Arc::new(client_instance)
+            );
         }
 
-        // Initiate model instances
-        client_instance.load_model(instances).await
-            .context("Error loading model instances")?;
-
-        tracing::info!("Initiated {} model instances for type {}", instances, model_type.to_string());
+        Ok(
+            Self {
+                models
+            }
+        )
     }
 
-    Ok(())
+    pub async fn start(&self, app_config: &AppConfig) -> Result<()> {
+        // Calculate total "load units" - how much processing capacity we need
+        // Each source contributes fractional load based on its frame rate
+        let instances: u32 = app_config
+            .sources_config()
+            .sources
+            .len() as u32;
+
+        // Load same amount of instances for each model type
+        for model_type in app_config.inference_config().models.keys() {
+            let client_instance = self.model(model_type.clone())?;
+
+            // Clear previous model instances
+            if let Ok(_) = client_instance.unload_model().await {
+                tracing::warn!("Unloaded previous model instances for type {}", model_type.to_string());
+            }
+
+            // Initiate model instances
+            client_instance.load_model(instances).await
+                .context("Error loading model instances")?;
+
+            tracing::info!("Initiated {} model instances for type {}", instances, model_type.to_string());
+        }
+
+        Ok(())
+    }
+
+    pub fn model(&self, model_type: InferenceModelType) -> Result<Arc<InferenceModel>> {
+        Ok(
+            self.models
+                .get(&model_type)
+                .cloned()
+                .context("Infernece model is not initiated!")?
+        )
+    }
 }
 
 /// Represents an instance of an inference model
